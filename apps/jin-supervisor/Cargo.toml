@@ -1,0 +1,13 @@
+[package]
+name = "jin-supervisor"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+clap.workspace = true
+jin-core = { path = "../../crates/jin-core" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

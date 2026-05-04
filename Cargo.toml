@@ -1,0 +1,25 @@
+[workspace]
+members = [
+  "apps/jin-server",
+  "apps/jin-supervisor",
+  "apps/jin-web",
+  "crates/jin-core",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+uuid = { version = "1", features = ["v4", "serde"] }

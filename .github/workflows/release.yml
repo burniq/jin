@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x86_64
+            runner: macos-15-intel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/jin-web-client/package-lock.json
+
+      - name: Derive version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.1.0-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Package archive
+        shell: bash
+        run: |
+          JIN_VERSION="${{ steps.version.outputs.version }}" \
+          JIN_TARGET="${{ matrix.target }}" \
+          bash scripts/package.sh "dist/package-${{ matrix.target }}" dist
+
+      - name: Verify archive
+        shell: bash
+        run: |
+          asset="dist/jin-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz"
+          test -f "$asset"
+          tar -tzf "$asset" > archive-contents.txt
+          grep -Fqx "bin/jin-server" archive-contents.txt
+          grep -Fqx "bin/jin-web" archive-contents.txt
+          grep -Fqx "bin/jin-supervisor" archive-contents.txt
+          grep -Fqx "bin/jin-web-client" archive-contents.txt
+          grep -Fqx "share/jin/web-client/index.html" archive-contents.txt
+          grep -Fqx "share/jin/web-client/server.mjs" archive-contents.txt
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: jin-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          path: dist/jin-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: jin-*
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          count="$(find dist -maxdepth 1 -name 'jin-*.tar.gz' | wc -l | tr -d ' ')"
+          test "$count" = "4"
+          for target in linux-x86_64 linux-aarch64 darwin-arm64 darwin-x86_64; do
+            test -f "dist/jin-${GITHUB_REF_NAME#v}-$target.tar.gz"
+          done
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.tar.gz
+          fail_on_unmatched_files: true
+          overwrite_files: true

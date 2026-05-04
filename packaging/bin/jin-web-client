@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+set -eu
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "jin-web-client requires Node.js to serve the packaged React client" >&2
+  exit 1
+fi
+
+bin_dir="$(dirname "$0")"
+bin_dir="$(cd "$bin_dir" && pwd)"
+prefix="$(cd "$bin_dir/.." && pwd)"
+server="$prefix/share/jin/web-client/server.mjs"
+
+if [ ! -f "$server" ]; then
+  echo "jin-web-client assets are missing at $prefix/share/jin/web-client" >&2
+  exit 1
+fi
+
+exec node "$server" "$@"
