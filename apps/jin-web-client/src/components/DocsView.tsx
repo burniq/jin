@@ -16,6 +16,14 @@ export function DocsView() {
           <p>Model and reasoning are editable when the selected tool exposes those controls.</p>
         </article>
         <article>
+          <h2>Factories</h2>
+          <p>Create project-scoped content pipelines, choose artifact types, and pause, resume, or stop them.</p>
+        </article>
+        <article>
+          <h2>Telegram sync</h2>
+          <p>Configure a write-only bot token and default Telegram chat/topic sync targets for chats and factories.</p>
+        </article>
+        <article>
           <h2>Public host</h2>
           <p>Global Jin settings define the host used when chat output points to localhost services.</p>
         </article>

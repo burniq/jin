@@ -17,6 +17,7 @@ const chats: ChatSession[] = [
     tool: "codex",
     status: "Idle",
     settings: {},
+    sync_targets: [],
     context: { supported: false, used: null, limit: null, label: "Context unavailable" },
     created_at: "2026-05-04T00:00:00Z",
     updated_at: "2026-05-04T00:00:00Z",

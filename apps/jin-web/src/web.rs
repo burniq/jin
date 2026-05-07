@@ -1291,6 +1291,7 @@ mod tests {
                             limit: None,
                             label: "Context pending".to_string(),
                         },
+                        sync_targets: Vec::new(),
                         created_at: chrono::Utc::now(),
                         updated_at: chrono::Utc::now(),
                     }])
@@ -1437,6 +1438,7 @@ mod tests {
                             limit: Some(1000),
                             label: "128 / 1000".to_string(),
                         },
+                        sync_targets: Vec::new(),
                         created_at: chrono::Utc::now(),
                         updated_at: chrono::Utc::now(),
                     }])
@@ -1461,6 +1463,7 @@ mod tests {
                             limit: Some(1000),
                             label: "128 / 1000".to_string(),
                         },
+                        sync_targets: Vec::new(),
                         created_at: chrono::Utc::now(),
                         updated_at: chrono::Utc::now(),
                     })

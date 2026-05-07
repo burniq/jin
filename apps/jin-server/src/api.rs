@@ -78,6 +78,16 @@ fn build_app_with_runtime_and_tools(
         .route("/settings", get(get_settings).put(update_settings))
         .route("/tools", get(list_tools))
         .route("/projects", get(list_projects).post(register_project))
+        .route(
+            "/projects/{project}/content-profile",
+            get(get_project_content_profile).put(update_project_content_profile),
+        )
+        .route("/factories", get(list_factories).post(create_factory))
+        .route("/factories/{factory_id}", get(get_factory))
+        .route("/factories/{factory_id}/events", get(list_factory_events))
+        .route("/factories/{factory_id}/pause", post(pause_factory))
+        .route("/factories/{factory_id}/resume", post(resume_factory))
+        .route("/factories/{factory_id}/stop", post(stop_factory))
         .route("/chats", get(list_chats).post(create_chat))
         .route("/chats/{chat_id}", get(get_chat))
         .route("/chats/{chat_id}/settings", post(update_chat_settings))
@@ -233,6 +243,106 @@ async fn register_project(
     let mut orchestrator = lock_orchestrator(&state)?;
     let project = orchestrator.register_project(request.name, request.root)?;
     Ok(Json(project))
+}
+
+async fn get_project_content_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project): Path<String>,
+) -> Result<Json<jin_core::factory::ProjectContentProfile>, ApiError> {
+    authorize(&state, &headers)?;
+    let orchestrator = lock_orchestrator(&state)?;
+    orchestrator
+        .get_project_content_profile(&project)
+        .map(Json)
+        .ok_or_else(|| ApiError::NotFound("content profile not found".to_string()))
+}
+
+async fn update_project_content_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project): Path<String>,
+    Json(payload): Json<ContentProfilePayload>,
+) -> Result<Json<jin_core::factory::ProjectContentProfile>, ApiError> {
+    authorize(&state, &headers)?;
+    let mut orchestrator = lock_orchestrator(&state)?;
+    let profile = orchestrator.update_project_content_profile(payload.into_update(project))?;
+    Ok(Json(profile))
+}
+
+async fn list_factories(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<jin_core::factory::FactoryPipeline>>, ApiError> {
+    authorize(&state, &headers)?;
+    let orchestrator = lock_orchestrator(&state)?;
+    Ok(Json(orchestrator.list_factory_pipelines()))
+}
+
+async fn create_factory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<jin_core::factory::CreateFactoryPipelineRequest>,
+) -> Result<Json<jin_core::factory::FactoryPipeline>, ApiError> {
+    authorize(&state, &headers)?;
+    let mut orchestrator = lock_orchestrator(&state)?;
+    Ok(Json(orchestrator.create_factory_pipeline(request)?))
+}
+
+async fn get_factory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(factory_id): Path<String>,
+) -> Result<Json<jin_core::factory::FactoryPipeline>, ApiError> {
+    authorize(&state, &headers)?;
+    let orchestrator = lock_orchestrator(&state)?;
+    orchestrator
+        .get_factory_pipeline(&factory_id)
+        .map(Json)
+        .ok_or(OrchestratorError::UnknownFactory.into())
+}
+
+async fn list_factory_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(factory_id): Path<String>,
+) -> Result<Json<Vec<jin_core::factory::FactoryEvent>>, ApiError> {
+    authorize(&state, &headers)?;
+    let orchestrator = lock_orchestrator(&state)?;
+    if orchestrator.get_factory_pipeline(&factory_id).is_none() {
+        return Err(OrchestratorError::UnknownFactory.into());
+    }
+    Ok(Json(orchestrator.list_factory_events(&factory_id)))
+}
+
+async fn pause_factory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(factory_id): Path<String>,
+) -> Result<Json<jin_core::factory::FactoryPipeline>, ApiError> {
+    authorize(&state, &headers)?;
+    let mut orchestrator = lock_orchestrator(&state)?;
+    Ok(Json(orchestrator.pause_factory_pipeline(&factory_id)?))
+}
+
+async fn resume_factory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(factory_id): Path<String>,
+) -> Result<Json<jin_core::factory::FactoryPipeline>, ApiError> {
+    authorize(&state, &headers)?;
+    let mut orchestrator = lock_orchestrator(&state)?;
+    Ok(Json(orchestrator.resume_factory_pipeline(&factory_id)?))
+}
+
+async fn stop_factory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(factory_id): Path<String>,
+) -> Result<Json<jin_core::factory::FactoryPipeline>, ApiError> {
+    authorize(&state, &headers)?;
+    let mut orchestrator = lock_orchestrator(&state)?;
+    Ok(Json(orchestrator.stop_factory_pipeline(&factory_id)?))
 }
 
 async fn list_chats(
@@ -605,6 +715,38 @@ struct RegisterProjectRequest {
     root: PathBuf,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ContentProfilePayload {
+    audience: Option<String>,
+    language: Option<String>,
+    tone: Option<String>,
+    persona: Option<String>,
+    #[serde(default)]
+    content_pillars: Vec<String>,
+    #[serde(default)]
+    references: Vec<String>,
+    #[serde(default)]
+    constraints: Vec<String>,
+    #[serde(default)]
+    publish_channels: Vec<String>,
+}
+
+impl ContentProfilePayload {
+    fn into_update(self, project: String) -> jin_core::factory::ProjectContentProfileUpdate {
+        jin_core::factory::ProjectContentProfileUpdate {
+            project,
+            audience: self.audience,
+            language: self.language,
+            tone: self.tone,
+            persona: self.persona,
+            content_pillars: self.content_pillars,
+            references: self.references,
+            constraints: self.constraints,
+            publish_channels: self.publish_channels,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct SendChatMessageRequest {
     content: String,
@@ -693,7 +835,8 @@ impl From<OrchestratorError> for ApiError {
             | OrchestratorError::InvalidInput(_) => Self::BadRequest(error.to_string()),
             OrchestratorError::UnknownTask
             | OrchestratorError::UnknownChat
-            | OrchestratorError::UnknownApproval => Self::NotFound(error.to_string()),
+            | OrchestratorError::UnknownApproval
+            | OrchestratorError::UnknownFactory => Self::NotFound(error.to_string()),
             OrchestratorError::Io(_)
             | OrchestratorError::Runner(_)
             | OrchestratorError::Store(_) => Self::Internal(error.to_string()),
@@ -1576,6 +1719,202 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let settings: jin_core::store::JinSettings = read_json(response).await;
         assert_eq!(settings.public_host.as_deref(), Some("jin.example.com"));
+    }
+
+    #[tokio::test]
+    async fn settings_endpoint_redacts_telegram_token_and_keeps_sync_defaults() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app(temp.path().join("state.json")).expect("app builds");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/settings")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "telegram": {
+                                "bot_token": "secret-token",
+                                "default_group_chat_id": "-10010"
+                            },
+                            "default_sync_targets": [{
+                                "id": "tg-project",
+                                "label": "Project topic",
+                                "kind": "TelegramForumTopic",
+                                "chat_id": "-10010",
+                                "message_thread_id": 42
+                            }]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let settings: jin_core::store::JinSettings = read_json(response).await;
+        assert!(settings.telegram.bot_token.is_none());
+        assert!(settings.telegram.bot_token_configured);
+        assert_eq!(settings.default_sync_targets.len(), 1);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/settings")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let settings: jin_core::store::JinSettings = read_json(response).await;
+        assert!(settings.telegram.bot_token.is_none());
+        assert!(settings.telegram.bot_token_configured);
+        assert_eq!(
+            settings.default_sync_targets[0].kind,
+            jin_core::sync::SyncTargetKind::TelegramForumTopic
+        );
+    }
+
+    #[tokio::test]
+    async fn content_profile_and_factory_routes_create_project_scoped_pipeline() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project root");
+        let app = build_app(temp.path().join("state.json")).expect("app builds");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/projects")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "jin",
+                            "root": project_root,
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/projects/jin/content-profile")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "audience": "founders",
+                            "language": "ru",
+                            "tone": "pragmatic",
+                            "persona": "technical founder",
+                            "content_pillars": ["agents", "developer tools"],
+                            "references": ["https://example.com/ref"],
+                            "constraints": ["no hype"],
+                            "publish_channels": ["telegram"]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let profile: jin_core::factory::ProjectContentProfile = read_json(response).await;
+        assert_eq!(profile.project, "jin");
+        assert_eq!(profile.audience.as_deref(), Some("founders"));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/projects/jin/content-profile")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let profile: jin_core::factory::ProjectContentProfile = read_json(response).await;
+        assert_eq!(profile.tone.as_deref(), Some("pragmatic"));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/factories")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "project": "jin",
+                            "title": "Agent content",
+                            "brief": "Generate article drafts and image concepts",
+                            "mode": "Finite",
+                            "review_policy": "PerStage",
+                            "content_types": ["Text", "Image"],
+                            "sync_targets": []
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let pipeline: jin_core::factory::FactoryPipeline = read_json(response).await;
+        assert_eq!(pipeline.project, "jin");
+        assert_eq!(
+            pipeline.status,
+            jin_core::factory::FactoryPipelineStatus::Draft
+        );
+        assert_eq!(pipeline.stages.len(), 6);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/factories/{}/resume", pipeline.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resumed: jin_core::factory::FactoryPipeline = read_json(response).await;
+        assert_eq!(
+            resumed.status,
+            jin_core::factory::FactoryPipelineStatus::Scheduled
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/factories/{}/events", pipeline.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let events: Vec<jin_core::factory::FactoryEvent> = read_json(response).await;
+        assert!(events
+            .iter()
+            .any(|event| event.content == "factory pipeline resumed"));
     }
 
     #[test]
@@ -2595,6 +2934,7 @@ mod tests {
             tool: "codex".to_string(),
             status: ChatStatus::Idle,
             settings: Default::default(),
+            sync_targets: Vec::new(),
             context: jin_core::chat::ContextSummary {
                 supported: true,
                 used: None,

@@ -202,7 +202,9 @@ button {
 .new-chat-route,
 .empty-state,
 .docs-view,
-.settings-view {
+.settings-view,
+.factories-view,
+.factory-detail {
   align-self: center;
   justify-self: center;
   width: min(100%, 820px);
@@ -234,8 +236,7 @@ textarea {
   resize: vertical;
 }
 
-.composer-toolbar,
-.settings-panel {
+.composer-toolbar {
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
   gap: 10px;
@@ -250,6 +251,10 @@ label span {
 }
 
 button[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 0;
   border-radius: 8px;
   padding: 10px 14px;
@@ -418,7 +423,9 @@ button[type="submit"] {
 
 .docs-view h1,
 .new-chat-route h1,
-.settings-view h1 {
+.settings-view h1,
+.factories-view h1,
+.factory-detail h1 {
   margin-top: 0;
 }
 
@@ -430,23 +437,155 @@ button[type="submit"] {
 
 .doc-grid article,
 .settings-panel,
-.settings-form {
+.settings-form,
+.factory-form,
+.factory-panel,
+.factory-list-item {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
   padding: 12px;
 }
 
+.settings-panel,
 .settings-form {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: end;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.settings-panel h2,
+.factory-panel h2 {
+  margin: 0;
+  font-size: 16px;
 }
 
 .form-status {
   margin: 0;
   color: var(--muted);
+}
+
+.section-header,
+.factory-list-item header,
+.factory-detail header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-header p,
+.factory-list-item p,
+.factory-panel p,
+.factory-event p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.factory-form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.factory-list {
+  display: grid;
+  gap: 10px;
+}
+
+.factory-list-item {
+  display: grid;
+  gap: 10px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+
+.factory-list-item:hover,
+.factory-list-item.active {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+}
+
+.factory-list-item h2,
+.factory-detail h1 {
+  margin: 0;
+}
+
+.inline-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.inline-options legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inline-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-options input[type="checkbox"] {
+  width: auto;
+}
+
+.factory-detail {
+  display: grid;
+  gap: 12px;
+  align-self: start;
+}
+
+.factory-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button-row button,
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: inherit;
+  padding: 8px 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.stage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stage-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  padding: 6px 9px;
+  font-size: 13px;
+}
+
+.factory-event {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }
 
 .form-error,
@@ -512,8 +651,6 @@ button[type="submit"] {
   }
 
   .composer-toolbar,
-  .settings-panel,
-  .settings-form,
   .chat-composer {
     grid-template-columns: 1fr;
   }

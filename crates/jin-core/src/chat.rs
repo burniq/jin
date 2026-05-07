@@ -1,3 +1,4 @@
+use crate::sync::SyncTarget;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -61,6 +62,8 @@ pub struct ChatSession {
     pub tool: String,
     pub status: ChatStatus,
     pub settings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub sync_targets: Vec<SyncTarget>,
     pub context: ContextSummary,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

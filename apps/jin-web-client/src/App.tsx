@@ -4,6 +4,7 @@ import type { ChatMessage, ChatSession } from "./api/types";
 import { AppShell } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
 import { DocsView } from "./components/DocsView";
+import { FactoriesView } from "./components/FactoriesView";
 import { NewChat } from "./components/NewChat";
 import { SettingsView } from "./components/SettingsView";
 import { useChatProgress } from "./hooks/useChatProgress";
@@ -24,6 +25,7 @@ export function App({ api = defaultApiClient }: AppProps) {
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const data = useJinData(api);
   const selectedChatId = useMemo(() => matchChatId(path), [path]);
+  const selectedFactoryId = useMemo(() => matchFactoryId(path), [path]);
   const progressQuery = useMemo(() => ({ limit: CHAT_MESSAGE_PAGE_SIZE }), []);
   const initialNewChatProject = useMemo(() => {
     const query = path.includes("?") ? path.slice(path.indexOf("?")) : window.location.search;
@@ -109,6 +111,18 @@ export function App({ api = defaultApiClient }: AppProps) {
         onChanged={() => void data.refreshSettings()}
       />
     );
+  } else if (path === "/factories" || selectedFactoryId) {
+    content = (
+      <FactoriesView
+        projects={data.projects}
+        factories={data.factories}
+        api={api}
+        selectedFactoryId={selectedFactoryId}
+        defaultSyncTargets={data.settings.default_sync_targets}
+        onNavigate={navigate}
+        onChanged={() => void data.refreshFactories()}
+      />
+    );
   } else if (selectedChatId && selectedChat) {
     content = (
       <ChatView
@@ -132,6 +146,7 @@ export function App({ api = defaultApiClient }: AppProps) {
           projects={data.projects}
           tools={data.tools}
           api={api}
+          defaultSyncTargets={data.settings.default_sync_targets}
           initialProject={initialNewChatProject}
           onCreated={(chatId) => {
             void data.refreshChats();
@@ -152,6 +167,11 @@ export function App({ api = defaultApiClient }: AppProps) {
 
 function matchChatId(path: string) {
   const match = /^\/chats\/([^/]+)$/.exec(path);
+  return match?.[1] ?? null;
+}
+
+function matchFactoryId(path: string) {
+  const match = /^\/factories\/([^/]+)$/.exec(path);
   return match?.[1] ?? null;
 }
 

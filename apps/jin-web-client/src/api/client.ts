@@ -4,8 +4,13 @@ import type {
   ChatMessagesQuery,
   ChatProgressResponse,
   ChatSession,
+  CreateFactoryPayload,
   CreateChatPayload,
+  FactoryEvent,
+  FactoryPipeline,
   JinSettings,
+  ProjectContentProfile,
+  ProjectContentProfilePayload,
   ProjectRecord,
   SendChatMessagePayload,
   ToolDescriptor,
@@ -18,6 +23,18 @@ export interface JinApiClient {
   listTools(): Promise<ToolDescriptor[]>;
   listProjects(): Promise<ProjectRecord[]>;
   listChats(): Promise<ChatSession[]>;
+  listFactories(): Promise<FactoryPipeline[]>;
+  createFactory(payload: CreateFactoryPayload): Promise<FactoryPipeline>;
+  getFactory(factoryId: string): Promise<FactoryPipeline>;
+  listFactoryEvents(factoryId: string): Promise<FactoryEvent[]>;
+  pauseFactory(factoryId: string): Promise<FactoryPipeline>;
+  resumeFactory(factoryId: string): Promise<FactoryPipeline>;
+  stopFactory(factoryId: string): Promise<FactoryPipeline>;
+  getProjectContentProfile(project: string): Promise<ProjectContentProfile>;
+  updateProjectContentProfile(
+    project: string,
+    payload: ProjectContentProfilePayload,
+  ): Promise<ProjectContentProfile>;
   createChat(payload: CreateChatPayload): Promise<ChatSession>;
   getChat(chatId: string): Promise<ChatSession>;
   listMessages(chatId: string, query?: ChatMessagesQuery): Promise<ChatMessagesPage>;
@@ -58,6 +75,23 @@ export function createJinApiClient(baseUrl = "/api"): JinApiClient {
     listTools: () => request<ToolDescriptor[]>("/tools"),
     listProjects: () => request<ProjectRecord[]>("/projects"),
     listChats: () => request<ChatSession[]>("/chats"),
+    listFactories: () => request<FactoryPipeline[]>("/factories"),
+    createFactory: (payload) => request<FactoryPipeline>("/factories", json("POST", payload)),
+    getFactory: (factoryId) => request<FactoryPipeline>(`/factories/${factoryId}`),
+    listFactoryEvents: (factoryId) => request<FactoryEvent[]>(`/factories/${factoryId}/events`),
+    pauseFactory: (factoryId) =>
+      request<FactoryPipeline>(`/factories/${factoryId}/pause`, json("POST")),
+    resumeFactory: (factoryId) =>
+      request<FactoryPipeline>(`/factories/${factoryId}/resume`, json("POST")),
+    stopFactory: (factoryId) =>
+      request<FactoryPipeline>(`/factories/${factoryId}/stop`, json("POST")),
+    getProjectContentProfile: (project) =>
+      request<ProjectContentProfile>(`/projects/${encodeURIComponent(project)}/content-profile`),
+    updateProjectContentProfile: (project, payload) =>
+      request<ProjectContentProfile>(
+        `/projects/${encodeURIComponent(project)}/content-profile`,
+        json("PUT", payload),
+      ),
     createChat: (payload) => request<ChatSession>("/chats", json("POST", payload)),
     getChat: (chatId) => request<ChatSession>(`/chats/${chatId}`),
     listMessages: (chatId, query) =>

@@ -1,4 +1,4 @@
-import { BookOpen, ChevronRight, FolderKanban, Menu, Plus, Settings, ShieldCheck, X } from "lucide-react";
+import { BookOpen, ChevronRight, Factory, FolderKanban, Menu, Plus, Settings, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 import type { ChatSession, ProjectRecord } from "../api/types";
 
@@ -108,6 +108,10 @@ export function AppShell({ chats, projects, children, onNavigate }: AppShellProp
           ))}
         </nav>
         <nav className="global-nav" aria-label="Navigation">
+          <button type="button" onClick={() => navigate("/factories")}>
+            <Factory size={16} />
+            Factories
+          </button>
           <button type="button" onClick={() => navigate("/projects")}>
             <FolderKanban size={16} />
             Projects

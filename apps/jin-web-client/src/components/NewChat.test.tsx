@@ -80,6 +80,7 @@ describe("NewChat", () => {
         tool: "codex",
         status: "Idle",
         settings: {},
+        sync_targets: [],
         context: { supported: true, used: null, limit: null, label: "Context pending" },
         created_at: "2026-05-04T00:00:00Z",
         updated_at: "2026-05-04T00:00:00Z",
@@ -98,6 +99,7 @@ describe("NewChat", () => {
       tool: "codex",
       title: null,
       settings: { model: "gpt-5.5", reasoning: "medium" },
+      sync_targets: [],
     });
     expect(api.sendMessage).toHaveBeenCalledWith("chat-1", { content: "Fix the UI" });
     expect(onCreated).toHaveBeenCalledWith("chat-1");
@@ -112,6 +114,7 @@ describe("NewChat", () => {
         tool: "codex",
         status: "Idle",
         settings: {},
+        sync_targets: [],
         context: { supported: true, used: null, limit: null, label: "Context pending" },
         created_at: "2026-05-04T00:00:00Z",
         updated_at: "2026-05-04T00:00:00Z",

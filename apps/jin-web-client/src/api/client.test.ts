@@ -8,6 +8,7 @@ const sampleChat = {
   tool: "codex",
   status: "Idle",
   settings: { model: "gpt-5.5" },
+  sync_targets: [],
   context: {
     supported: true,
     used: null,
@@ -71,21 +72,115 @@ describe("createJinApiClient", () => {
 
   it("updates global Jin settings", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ public_host: "jin.example.com" }), {
+      new Response(
+        JSON.stringify({
+          public_host: "jin.example.com",
+          telegram: {
+            bot_token: null,
+            bot_token_configured: true,
+            default_group_chat_id: "-10010",
+          },
+          default_sync_targets: [],
+        }),
+        {
         status: 200,
         headers: { "content-type": "application/json" },
-      }),
+        },
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createJinApiClient("/api");
-    const settings = await client.updateSettings({ public_host: "jin.example.com" });
+    const settings = await client.updateSettings({
+      public_host: "jin.example.com",
+      telegram: {
+        bot_token: "secret-token",
+        bot_token_configured: false,
+        default_group_chat_id: "-10010",
+      },
+      default_sync_targets: [],
+    });
 
     expect(settings.public_host).toBe("jin.example.com");
+    expect(settings.telegram.bot_token).toBeNull();
+    expect(settings.telegram.bot_token_configured).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith("/api/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ public_host: "jin.example.com" }),
+      body: JSON.stringify({
+        public_host: "jin.example.com",
+        telegram: {
+          bot_token: "secret-token",
+          bot_token_configured: false,
+          default_group_chat_id: "-10010",
+        },
+        default_sync_targets: [],
+      }),
+    });
+  });
+
+  it("creates and controls factory pipelines", async () => {
+    const pipeline = {
+      id: "factory-1",
+      project: "jin",
+      title: "Agent content",
+      brief: "Create article drafts",
+      mode: "Finite",
+      review_policy: "PerStage",
+      status: "Draft",
+      content_types: ["Text", "Image"],
+      output_path: "/tmp/jin",
+      schedule: {},
+      sync_targets: [],
+      stages: [],
+      artifacts: [],
+      review_bundles: [],
+      events: [],
+      created_at: "2026-05-07T00:00:00Z",
+      updated_at: "2026-05-07T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(pipeline), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createJinApiClient("/api");
+    const created = await client.createFactory({
+      project: "jin",
+      title: "Agent content",
+      brief: "Create article drafts",
+      mode: "Finite",
+      review_policy: "PerStage",
+      content_types: ["Text", "Image"],
+      output_path: null,
+      sync_targets: [],
+    });
+    await client.resumeFactory(created.id);
+
+    expect(created.id).toBe("factory-1");
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/factories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        project: "jin",
+        title: "Agent content",
+        brief: "Create article drafts",
+        mode: "Finite",
+        review_policy: "PerStage",
+        content_types: ["Text", "Image"],
+        output_path: null,
+        sync_targets: [],
+      }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/factories/factory-1/resume", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: undefined,
     });
   });
 

@@ -1,5 +1,7 @@
 use crate::chat::{ChatMessage, ChatSession};
+use crate::factory::{FactoryPipeline, ProjectContentProfile};
 use crate::orchestrator::{ApprovalRecord, ProjectRecord, TaskRecord};
+use crate::sync::{SyncTarget, TelegramSettings};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,6 +10,10 @@ use std::path::{Path, PathBuf};
 pub struct JinSettings {
     #[serde(default)]
     pub public_host: Option<String>,
+    #[serde(default)]
+    pub telegram: TelegramSettings,
+    #[serde(default)]
+    pub default_sync_targets: Vec<SyncTarget>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +30,10 @@ pub struct JinState {
     pub chats: Vec<ChatSession>,
     #[serde(default)]
     pub chat_messages: Vec<ChatMessage>,
+    #[serde(default)]
+    pub project_content_profiles: Vec<ProjectContentProfile>,
+    #[serde(default)]
+    pub factory_pipelines: Vec<FactoryPipeline>,
 }
 
 #[derive(Debug, Clone)]

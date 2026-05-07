@@ -1,9 +1,14 @@
 use crate::chat::{
     built_in_tools, ChatMessage, ChatRole, ChatSession, ChatStatus, ContextSummary, ToolDescriptor,
 };
+use crate::factory::{
+    default_factory_stages, CreateFactoryPipelineRequest, FactoryEvent, FactoryEventKind,
+    FactoryPipeline, FactoryPipelineStatus, ProjectContentProfile, ProjectContentProfileUpdate,
+};
 use crate::policy::{GuardedAction, PolicyConfig, PolicyDecision, PolicyEngine};
 use crate::runner::{CodexRunner, RunnerAdapter, RunnerRequest, ShellRunner};
 use crate::store::{FileStore, JinSettings, StoreError};
+use crate::sync::{normalize_sync_targets, redacted_telegram_settings, SyncTarget};
 use crate::task::TaskState;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -57,6 +62,8 @@ pub struct CreateChatRequest {
     pub title: Option<String>,
     #[serde(default)]
     pub settings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub sync_targets: Option<Vec<SyncTarget>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,21 +136,36 @@ impl JinOrchestrator {
     }
 
     pub fn settings(&self) -> JinSettings {
-        self.store.state().settings.clone()
+        redact_settings(&self.store.state().settings)
     }
 
     pub fn update_settings(
         &mut self,
         settings: JinSettings,
     ) -> Result<JinSettings, OrchestratorError> {
+        let existing_token = self.store.state().settings.telegram.bot_token.clone();
+        let bot_token = match settings.telegram.bot_token {
+            Some(token) => normalize_optional_string(&token),
+            None => existing_token,
+        };
+        let bot_token_configured = bot_token.is_some();
         let settings = JinSettings {
             public_host: settings
                 .public_host
                 .and_then(|host| normalize_optional_string(&host)),
+            telegram: crate::sync::TelegramSettings {
+                bot_token,
+                bot_token_configured,
+                default_group_chat_id: settings
+                    .telegram
+                    .default_group_chat_id
+                    .and_then(|chat_id| normalize_optional_string(&chat_id)),
+            },
+            default_sync_targets: normalize_sync_targets(settings.default_sync_targets),
         };
         self.store.state_mut().settings = settings.clone();
         self.store.save()?;
-        Ok(settings)
+        Ok(redact_settings(&settings))
     }
 
     pub fn list_tools(&self) -> Vec<ToolDescriptor> {
@@ -191,6 +213,215 @@ impl JinOrchestrator {
         self.store.state().tasks.clone()
     }
 
+    pub fn get_project_content_profile(&self, project: &str) -> Option<ProjectContentProfile> {
+        self.store
+            .state()
+            .project_content_profiles
+            .iter()
+            .find(|profile| profile.project == project)
+            .cloned()
+    }
+
+    pub fn update_project_content_profile(
+        &mut self,
+        request: ProjectContentProfileUpdate,
+    ) -> Result<ProjectContentProfile, OrchestratorError> {
+        if !self
+            .store
+            .state()
+            .projects
+            .iter()
+            .any(|project| project.name == request.project)
+        {
+            return Err(OrchestratorError::UnknownProject);
+        }
+
+        let profile = ProjectContentProfile {
+            project: request.project,
+            audience: request
+                .audience
+                .and_then(|value| normalize_optional_string(&value)),
+            language: request
+                .language
+                .and_then(|value| normalize_optional_string(&value)),
+            tone: request
+                .tone
+                .and_then(|value| normalize_optional_string(&value)),
+            persona: request
+                .persona
+                .and_then(|value| normalize_optional_string(&value)),
+            content_pillars: normalize_string_vec(request.content_pillars),
+            references: normalize_string_vec(request.references),
+            constraints: normalize_string_vec(request.constraints),
+            publish_channels: normalize_string_vec(request.publish_channels),
+            updated_at: Utc::now(),
+        };
+
+        self.store
+            .state_mut()
+            .project_content_profiles
+            .retain(|existing| existing.project != profile.project);
+        self.store
+            .state_mut()
+            .project_content_profiles
+            .push(profile.clone());
+        self.store.save()?;
+        Ok(profile)
+    }
+
+    pub fn list_factory_pipelines(&self) -> Vec<FactoryPipeline> {
+        self.store.state().factory_pipelines.clone()
+    }
+
+    pub fn get_factory_pipeline(&self, pipeline_id: &str) -> Option<FactoryPipeline> {
+        self.store
+            .state()
+            .factory_pipelines
+            .iter()
+            .find(|pipeline| pipeline.id == pipeline_id)
+            .cloned()
+    }
+
+    pub fn create_factory_pipeline(
+        &mut self,
+        request: CreateFactoryPipelineRequest,
+    ) -> Result<FactoryPipeline, OrchestratorError> {
+        if request.brief.trim().is_empty() {
+            return Err(OrchestratorError::InvalidInput(
+                "factory brief is blank".to_string(),
+            ));
+        }
+        if request.content_types.is_empty() {
+            return Err(OrchestratorError::InvalidInput(
+                "factory content types are empty".to_string(),
+            ));
+        }
+
+        let project = self
+            .store
+            .state()
+            .projects
+            .iter()
+            .find(|project| project.name == request.project)
+            .cloned()
+            .ok_or(OrchestratorError::UnknownProject)?;
+        let now = Utc::now();
+        let id = Uuid::new_v4().to_string();
+        let title = request
+            .title
+            .and_then(|title| normalize_optional_string(&title))
+            .unwrap_or_else(|| format!("Factory / {}", project.name));
+        let output_path = match request.output_path {
+            Some(path) if path.is_absolute() => Some(path),
+            Some(path) => Some(project.root.join(path)),
+            None => Some(project.root.join(".jin/factories").join(&id)),
+        };
+        let sync_targets = match request.sync_targets {
+            Some(targets) => normalize_sync_targets(targets),
+            None => self.store.state().settings.default_sync_targets.clone(),
+        };
+        let created_event = FactoryEvent {
+            id: Uuid::new_v4().to_string(),
+            pipeline_id: id.clone(),
+            kind: FactoryEventKind::System,
+            content: "factory pipeline created".to_string(),
+            created_at: now,
+        };
+        let pipeline = FactoryPipeline {
+            id,
+            project: project.name,
+            title,
+            brief: request.brief.trim().to_string(),
+            mode: request.mode,
+            review_policy: request.review_policy,
+            status: FactoryPipelineStatus::Draft,
+            content_types: request.content_types,
+            output_path,
+            schedule: Default::default(),
+            sync_targets,
+            stages: default_factory_stages(),
+            artifacts: Vec::new(),
+            review_bundles: Vec::new(),
+            events: vec![created_event],
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.store
+            .state_mut()
+            .factory_pipelines
+            .push(pipeline.clone());
+        self.store.save()?;
+        Ok(pipeline)
+    }
+
+    pub fn list_factory_events(&self, pipeline_id: &str) -> Vec<FactoryEvent> {
+        self.get_factory_pipeline(pipeline_id)
+            .map(|pipeline| pipeline.events)
+            .unwrap_or_default()
+    }
+
+    pub fn pause_factory_pipeline(
+        &mut self,
+        pipeline_id: &str,
+    ) -> Result<FactoryPipeline, OrchestratorError> {
+        self.set_factory_pipeline_status(
+            pipeline_id,
+            FactoryPipelineStatus::Paused,
+            "factory pipeline paused",
+        )
+    }
+
+    pub fn resume_factory_pipeline(
+        &mut self,
+        pipeline_id: &str,
+    ) -> Result<FactoryPipeline, OrchestratorError> {
+        self.set_factory_pipeline_status(
+            pipeline_id,
+            FactoryPipelineStatus::Scheduled,
+            "factory pipeline resumed",
+        )
+    }
+
+    pub fn stop_factory_pipeline(
+        &mut self,
+        pipeline_id: &str,
+    ) -> Result<FactoryPipeline, OrchestratorError> {
+        self.set_factory_pipeline_status(
+            pipeline_id,
+            FactoryPipelineStatus::Stopped,
+            "factory pipeline stopped",
+        )
+    }
+
+    fn set_factory_pipeline_status(
+        &mut self,
+        pipeline_id: &str,
+        status: FactoryPipelineStatus,
+        event: &str,
+    ) -> Result<FactoryPipeline, OrchestratorError> {
+        let now = Utc::now();
+        let pipeline = self
+            .store
+            .state_mut()
+            .factory_pipelines
+            .iter_mut()
+            .find(|pipeline| pipeline.id == pipeline_id)
+            .ok_or(OrchestratorError::UnknownFactory)?;
+        pipeline.status = status;
+        pipeline.updated_at = now;
+        pipeline.events.push(FactoryEvent {
+            id: Uuid::new_v4().to_string(),
+            pipeline_id: pipeline.id.clone(),
+            kind: FactoryEventKind::System,
+            content: event.to_string(),
+            created_at: now,
+        });
+        let pipeline = pipeline.clone();
+        self.store.save()?;
+        Ok(pipeline)
+    }
+
     pub fn list_approvals(&self) -> Vec<ApprovalRecord> {
         self.store.state().approvals.clone()
     }
@@ -236,6 +467,10 @@ impl JinOrchestrator {
             tool: tool.id,
             status: ChatStatus::Idle,
             settings,
+            sync_targets: request
+                .sync_targets
+                .map(normalize_sync_targets)
+                .unwrap_or_else(|| self.store.state().settings.default_sync_targets.clone()),
             context: ContextSummary {
                 supported: tool.supports_context_meter,
                 used: None,
@@ -560,6 +795,14 @@ fn replace_task(state: &mut crate::store::JinState, task: TaskRecord) {
     }
 }
 
+fn redact_settings(settings: &JinSettings) -> JinSettings {
+    JinSettings {
+        public_host: settings.public_host.clone(),
+        telegram: redacted_telegram_settings(&settings.telegram),
+        default_sync_targets: settings.default_sync_targets.clone(),
+    }
+}
+
 fn normalize_chat_settings(
     tool: &ToolDescriptor,
     requested: BTreeMap<String, String>,
@@ -600,6 +843,13 @@ fn normalize_optional_string(value: &str) -> Option<String> {
     } else {
         Some(value.to_string())
     }
+}
+
+fn normalize_string_vec(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .filter_map(|value| normalize_optional_string(&value))
+        .collect()
 }
 
 fn canonicalize_project_root(root: &Path) -> Result<PathBuf, OrchestratorError> {
@@ -696,6 +946,7 @@ pub enum OrchestratorError {
     UnknownProject,
     UnknownTool,
     UnknownChat,
+    UnknownFactory,
     UnknownRunner,
     UnknownTask,
     UnknownApproval,
@@ -724,6 +975,7 @@ impl std::fmt::Display for OrchestratorError {
             Self::UnknownProject => write!(f, "unknown project"),
             Self::UnknownTool => write!(f, "unknown tool"),
             Self::UnknownChat => write!(f, "unknown chat"),
+            Self::UnknownFactory => write!(f, "unknown factory"),
             Self::UnknownRunner => write!(f, "unknown runner"),
             Self::UnknownTask => write!(f, "unknown task"),
             Self::UnknownApproval => write!(f, "unknown approval"),
@@ -784,6 +1036,7 @@ mod tests {
                 tool: "codex".to_string(),
                 title: None,
                 settings: BTreeMap::new(),
+                sync_targets: None,
             })
             .expect("chat is created");
 
@@ -834,6 +1087,7 @@ mod tests {
                 tool: "codex".to_string(),
                 title: None,
                 settings: BTreeMap::from([("model".to_string(), "gpt-5.5".to_string())]),
+                sync_targets: None,
             })
             .expect("dynamic model option is accepted");
 
@@ -862,6 +1116,7 @@ mod tests {
                 tool: "codex".to_string(),
                 title: None,
                 settings: BTreeMap::new(),
+                sync_targets: None,
             })
             .expect_err("unknown project is rejected");
         assert!(matches!(unknown_project, OrchestratorError::UnknownProject));
@@ -872,6 +1127,7 @@ mod tests {
                 tool: "missing".to_string(),
                 title: None,
                 settings: BTreeMap::new(),
+                sync_targets: None,
             })
             .expect_err("unknown tool is rejected");
         assert!(matches!(unknown_tool, OrchestratorError::UnknownTool));
@@ -895,6 +1151,7 @@ mod tests {
                 tool: "codex".to_string(),
                 title: None,
                 settings: BTreeMap::new(),
+                sync_targets: None,
             })
             .expect("chat is created");
 
@@ -937,6 +1194,7 @@ mod tests {
                 tool: "codex".to_string(),
                 title: None,
                 settings: BTreeMap::new(),
+                sync_targets: None,
             })
             .expect("chat is created");
 
@@ -1050,5 +1308,163 @@ mod tests {
 
         assert_eq!(task.state, TaskState::Completed);
         assert!(task.pending_approval_id.is_none());
+    }
+
+    #[test]
+    fn project_content_profile_persists_and_factory_inherits_sync_defaults() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_path = temp.path().join("state.json");
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project root");
+
+        let mut orchestrator =
+            JinOrchestrator::new(FileStore::open(&state_path).expect("store opens"));
+        orchestrator
+            .register_project("jin", project_root)
+            .expect("project registers");
+        orchestrator
+            .update_settings(crate::store::JinSettings {
+                public_host: Some("jin.example.com".to_string()),
+                telegram: crate::sync::TelegramSettings {
+                    bot_token: Some("secret-token".to_string()),
+                    bot_token_configured: false,
+                    default_group_chat_id: Some("-10010".to_string()),
+                },
+                default_sync_targets: vec![crate::sync::SyncTarget {
+                    id: "tg-project".to_string(),
+                    label: "Jin project topic".to_string(),
+                    kind: crate::sync::SyncTargetKind::TelegramForumTopic,
+                    chat_id: Some("-10010".to_string()),
+                    message_thread_id: Some(42),
+                }],
+            })
+            .expect("settings update");
+
+        let public_settings = orchestrator.settings();
+        assert!(public_settings.telegram.bot_token.is_none());
+        assert!(public_settings.telegram.bot_token_configured);
+        assert_eq!(public_settings.default_sync_targets.len(), 1);
+
+        let profile = orchestrator
+            .update_project_content_profile(crate::factory::ProjectContentProfileUpdate {
+                project: "jin".to_string(),
+                audience: Some("founders".to_string()),
+                language: Some("ru".to_string()),
+                tone: Some("pragmatic".to_string()),
+                persona: Some("technical founder".to_string()),
+                content_pillars: vec!["ai agents".to_string(), "dev tools".to_string()],
+                references: vec!["https://example.com/ref".to_string()],
+                constraints: vec!["no hype".to_string()],
+                publish_channels: vec!["telegram".to_string()],
+            })
+            .expect("profile update");
+
+        assert_eq!(profile.project, "jin");
+        assert_eq!(profile.audience.as_deref(), Some("founders"));
+
+        let pipeline = orchestrator
+            .create_factory_pipeline(crate::factory::CreateFactoryPipelineRequest {
+                project: "jin".to_string(),
+                title: Some("Weekly agent content".to_string()),
+                brief: "Prepare article drafts and icon concepts".to_string(),
+                mode: crate::factory::FactoryPipelineMode::Finite,
+                review_policy: crate::factory::FactoryReviewPolicy::PerStage,
+                content_types: vec![
+                    crate::factory::FactoryArtifactKind::Text,
+                    crate::factory::FactoryArtifactKind::Image,
+                ],
+                output_path: None,
+                sync_targets: None,
+            })
+            .expect("factory creates");
+
+        assert_eq!(pipeline.project, "jin");
+        assert_eq!(
+            pipeline.status,
+            crate::factory::FactoryPipelineStatus::Draft
+        );
+        assert_eq!(pipeline.sync_targets.len(), 1);
+        assert_eq!(pipeline.stages.len(), 6);
+        assert_eq!(
+            pipeline
+                .events
+                .first()
+                .expect("created event")
+                .content
+                .as_str(),
+            "factory pipeline created"
+        );
+
+        let reloaded = JinOrchestrator::new(FileStore::open(&state_path).expect("store reloads"));
+        assert_eq!(
+            reloaded
+                .get_project_content_profile("jin")
+                .expect("profile persists")
+                .tone
+                .as_deref(),
+            Some("pragmatic")
+        );
+        assert_eq!(reloaded.list_factory_pipelines().len(), 1);
+        assert!(reloaded.settings().telegram.bot_token.is_none());
+        assert!(reloaded.settings().telegram.bot_token_configured);
+    }
+
+    #[test]
+    fn factory_lifecycle_controls_update_status_and_timeline() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_path = temp.path().join("state.json");
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project root");
+
+        let mut orchestrator =
+            JinOrchestrator::new(FileStore::open(&state_path).expect("store opens"));
+        orchestrator
+            .register_project("jin", project_root)
+            .expect("project registers");
+
+        let pipeline = orchestrator
+            .create_factory_pipeline(crate::factory::CreateFactoryPipelineRequest {
+                project: "jin".to_string(),
+                title: None,
+                brief: "Create a content pipeline".to_string(),
+                mode: crate::factory::FactoryPipelineMode::Continuous,
+                review_policy: crate::factory::FactoryReviewPolicy::FinalOnly,
+                content_types: vec![crate::factory::FactoryArtifactKind::Script],
+                output_path: Some("content-output".into()),
+                sync_targets: Some(Vec::new()),
+            })
+            .expect("factory creates");
+
+        let paused = orchestrator
+            .pause_factory_pipeline(&pipeline.id)
+            .expect("pipeline pauses");
+        assert_eq!(paused.status, crate::factory::FactoryPipelineStatus::Paused);
+
+        let resumed = orchestrator
+            .resume_factory_pipeline(&pipeline.id)
+            .expect("pipeline resumes");
+        assert_eq!(
+            resumed.status,
+            crate::factory::FactoryPipelineStatus::Scheduled
+        );
+
+        let stopped = orchestrator
+            .stop_factory_pipeline(&pipeline.id)
+            .expect("pipeline stops");
+        assert_eq!(
+            stopped.status,
+            crate::factory::FactoryPipelineStatus::Stopped
+        );
+
+        let events = orchestrator.list_factory_events(&pipeline.id);
+        assert!(events
+            .iter()
+            .any(|event| event.content == "factory pipeline paused"));
+        assert!(events
+            .iter()
+            .any(|event| event.content == "factory pipeline resumed"));
+        assert!(events
+            .iter()
+            .any(|event| event.content == "factory pipeline stopped"));
     }
 }

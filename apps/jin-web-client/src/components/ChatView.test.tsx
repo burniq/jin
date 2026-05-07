@@ -22,6 +22,7 @@ const chat = (status: ChatSession["status"]): ChatSession => ({
   status,
   settings: { model: "gpt-5.5", reasoning: "medium" },
   context: { supported: true, used: 100, limit: 1000, label: "100 / 1000" },
+  sync_targets: [],
   created_at: "2026-05-04T00:00:00Z",
   updated_at: "2026-05-04T00:00:00Z",
 });

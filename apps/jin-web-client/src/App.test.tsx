@@ -9,6 +9,7 @@ const chat = {
   tool: "codex",
   status: "Idle" as const,
   settings: { model: "gpt-5.5" },
+  sync_targets: [],
   context: { supported: true, used: null, limit: null, label: "Context pending" },
   created_at: "2026-05-04T00:00:00Z",
   updated_at: "2026-05-04T00:00:00Z",
@@ -22,13 +23,52 @@ const tool = {
   settings: [{ id: "model", label: "Model", kind: "Select" as const, options: ["gpt-5.5"], default: "gpt-5.5" }],
 };
 
+const settings = {
+  public_host: null,
+  telegram: {
+    bot_token: null,
+    bot_token_configured: false,
+    default_group_chat_id: null,
+  },
+  default_sync_targets: [],
+};
+
+const factory = {
+  id: "factory-1",
+  project: "jin",
+  title: "Agent content",
+  brief: "Create articles",
+  mode: "Finite" as const,
+  review_policy: "PerStage" as const,
+  status: "Draft" as const,
+  content_types: ["Text" as const],
+  output_path: null,
+  schedule: {},
+  sync_targets: [],
+  stages: [],
+  artifacts: [],
+  review_bundles: [],
+  events: [],
+  created_at: "2026-05-07T00:00:00Z",
+  updated_at: "2026-05-07T00:00:00Z",
+};
+
 function api() {
   return {
     listTools: vi.fn().mockResolvedValue([tool]),
-    getSettings: vi.fn().mockResolvedValue({ public_host: null }),
-    updateSettings: vi.fn().mockResolvedValue({ public_host: "jin.example.com" }),
+    getSettings: vi.fn().mockResolvedValue(settings),
+    updateSettings: vi.fn().mockResolvedValue({ ...settings, public_host: "jin.example.com" }),
     listProjects: vi.fn().mockResolvedValue([{ name: "jin", root: "/tmp/jin" }]),
     listChats: vi.fn().mockResolvedValue([chat]),
+    listFactories: vi.fn().mockResolvedValue([factory]),
+    createFactory: vi.fn().mockResolvedValue(factory),
+    getFactory: vi.fn().mockResolvedValue(factory),
+    listFactoryEvents: vi.fn().mockResolvedValue([]),
+    pauseFactory: vi.fn().mockResolvedValue({ ...factory, status: "Paused" }),
+    resumeFactory: vi.fn().mockResolvedValue({ ...factory, status: "Scheduled" }),
+    stopFactory: vi.fn().mockResolvedValue({ ...factory, status: "Stopped" }),
+    getProjectContentProfile: vi.fn(),
+    updateProjectContentProfile: vi.fn(),
     createChat: vi.fn(),
     getChat: vi.fn().mockResolvedValue(chat),
     listMessages: vi.fn().mockResolvedValue({ messages: [], has_more: false }),
@@ -80,13 +120,16 @@ describe("App", () => {
         return Promise.resolve(jsonResponse([tool]));
       }
       if (url.endsWith("/settings")) {
-        return Promise.resolve(jsonResponse({ public_host: null }));
+        return Promise.resolve(jsonResponse(settings));
       }
       if (url.endsWith("/projects")) {
         return Promise.resolve(jsonResponse([{ name: "jin", root: "/tmp/jin" }]));
       }
       if (url.endsWith("/chats")) {
         return Promise.resolve(jsonResponse([chat]));
+      }
+      if (url.endsWith("/factories")) {
+        return Promise.resolve(jsonResponse([]));
       }
       return Promise.resolve(jsonResponse([]));
     });
@@ -97,7 +140,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("Start a new chat")).toBeInTheDocument());
     await new Promise((resolve) => window.setTimeout(resolve, 50));
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("renders global settings route", async () => {
@@ -106,6 +149,14 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Jin settings" })).toBeInTheDocument());
     expect(screen.getByLabelText("Public host")).toBeInTheDocument();
+  });
+
+  it("renders factories route", async () => {
+    window.history.pushState({}, "", "/factories");
+    render(<App api={api()} />);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Factories" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /Agent content/ })).toBeInTheDocument();
   });
 
   it("prefills the new chat project from the route query", async () => {

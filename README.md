@@ -10,11 +10,13 @@ single chat interface.
 Jin is an early MVP. The current implementation focuses on:
 
 - project-scoped chat sessions;
+- project-scoped content factory pipelines;
 - a React web client on a separate frontend port;
 - native-wrapper Codex integration through the local Codex CLI/app server;
 - shell runner with approval gates;
 - local filesystem project registry;
 - durable file-backed state;
+- Telegram-aware sync target settings;
 - global settings such as public host rewriting for localhost links;
 - supervisor commands for stable/candidate promotion and rollback.
 
@@ -138,6 +140,54 @@ curl -sS -X POST http://127.0.0.1:8787/projects \
 
 Chats are grouped by project in the sidebar. Project groups can be collapsed,
 and the collapsed state is saved locally in the browser.
+
+## Content Factories
+
+Factories are a separate mode from chats. A factory is a project-scoped content
+pipeline with a brief, content types, review policy, durable timeline, and
+lifecycle controls.
+
+The MVP supports the core model and UI for:
+
+- text, script, image, 3D, and music artifact type selection;
+- finite or continuous pipeline mode;
+- per-stage or final-only review policy;
+- default pipeline stages: brief, research, plan, generate, refine, review;
+- pause, resume, and stop controls;
+- inherited sync targets from global settings.
+
+Open the `Factories` tab in the web client to create and inspect pipelines.
+Provider execution workers are intentionally behind the same pipeline model and
+will be added as the next layer.
+
+Factory API surface:
+
+```text
+GET  /factories
+POST /factories
+GET  /factories/{factory_id}
+GET  /factories/{factory_id}/events
+POST /factories/{factory_id}/pause
+POST /factories/{factory_id}/resume
+POST /factories/{factory_id}/stop
+GET  /projects/{project}/content-profile
+PUT  /projects/{project}/content-profile
+```
+
+## Telegram Sync Settings
+
+Set the Telegram bot token in `Settings`. The token is write-only: the backend
+stores it, but API responses only return whether a token is configured.
+
+Jin also stores global default sync targets. A target can be:
+
+- a Telegram chat;
+- a Telegram forum topic inside a supergroup.
+
+When a chat or factory is created in the web client, Jin preselects the default
+sync targets and lets you change the multi-select for that specific item. This
+keeps the model ready for Telegram group/topic mirroring while the bot delivery
+worker evolves separately.
 
 ## Public Host
 
