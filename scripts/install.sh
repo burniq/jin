@@ -2,8 +2,8 @@
 set -eu
 
 repo="${JIN_REPO:-burniq/jin}"
-version="${JIN_VERSION:-0.1.0}"
-release_tag="${JIN_RELEASE_TAG:-v$version}"
+version="${JIN_VERSION:-}"
+release_tag="${JIN_RELEASE_TAG:-}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -19,8 +19,33 @@ need install
 need mkdir
 need mktemp
 need rm
+need sed
 need tar
 need uname
+
+resolve_release() {
+  if [ -n "$version" ]; then
+    if [ -z "$release_tag" ]; then
+      release_tag="v$version"
+    fi
+    return
+  fi
+
+  if [ -n "$release_tag" ]; then
+    version="${release_tag#v}"
+    return
+  fi
+
+  latest_url="${JIN_LATEST_RELEASE_URL:-https://api.github.com/repos/$repo/releases/latest}"
+  echo "jin installer: resolving latest release from $latest_url"
+  latest_json="$(curl -fsSL "$latest_url")"
+  release_tag="$(printf '%s\n' "$latest_json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n '1p')"
+  if [ -z "$release_tag" ]; then
+    echo "jin installer: failed to resolve latest release tag" >&2
+    exit 1
+  fi
+  version="${release_tag#v}"
+}
 
 install_privilege() {
   bin_dir="$1/bin"
@@ -74,6 +99,7 @@ detect_target() {
 }
 
 target="${JIN_TARGET:-$(detect_target)}"
+resolve_release
 case "$target" in
   linux-*) default_prefix="/usr" ;;
   darwin-*) default_prefix="/usr/local" ;;

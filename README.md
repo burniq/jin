@@ -35,10 +35,10 @@ For a fork or private repo:
 curl -fsSL https://raw.githubusercontent.com/burniq/jin/main/scripts/install.sh | JIN_REPO=burniq/jin sh
 ```
 
-The installer downloads `jin-${JIN_VERSION:-0.1.0}-${target}.tar.gz` from
-GitHub Releases. If `jin-server` is already in `PATH`, the installer updates
-that existing location. Otherwise it installs into `/usr/bin` on Linux and
-`/usr/local/bin` on macOS by default:
+By default, the installer resolves the latest GitHub Release and downloads
+`jin-<version>-<target>.tar.gz`. If `jin-server` is already in `PATH`, the
+installer updates that existing location. Otherwise it installs into `/usr/bin`
+on Linux and `/usr/local/bin` on macOS by default:
 
 - `jin-server`
 - `jin-web`
@@ -52,7 +52,7 @@ Use a specific release or target when needed:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/burniq/jin/main/scripts/install.sh | \
-  JIN_VERSION=0.1.0 JIN_TARGET=linux-x86_64 sh
+  JIN_VERSION=0.0.1 JIN_TARGET=linux-x86_64 sh
 ```
 
 Source builds are an explicit fallback for development machines with `bash`,
@@ -77,7 +77,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Release archives are published automatically by GitHub Actions when a tag like
-`v0.1.0` is pushed. The release workflow uploads:
+`v0.0.1` is pushed. The release workflow uploads:
 
 - `jin-<version>-linux-x86_64.tar.gz`
 - `jin-<version>-linux-aarch64.tar.gz`
@@ -254,7 +254,7 @@ cd apps/jin-web-client && npm run build
 Build a local release archive:
 
 ```sh
-JIN_VERSION=0.1.0 JIN_TARGET=darwin-arm64 bash scripts/package.sh
+JIN_VERSION=0.0.1 JIN_TARGET=darwin-arm64 bash scripts/package.sh
 ```
 
 Run the backend from source during development:
